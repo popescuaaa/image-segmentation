@@ -70,10 +70,11 @@ def add_node(parent_idx: int, x: int, y: int, w: int, h: int, tolerance: float, 
     global_idx += 1
 
     if not homogenous(new_node.idx, tolerance, image):
+        print('Entered here')
         split(new_node.idx, tolerance, image)
-    else:
-        print('Added')
-        return new_node
+
+    print('Added')
+    return new_node
 
 
 def split(idx: int, tolerance: float, image: np.ndarray):
@@ -89,13 +90,17 @@ def split(idx: int, tolerance: float, image: np.ndarray):
 
     # Split the image to all successors
     print('Adding new nodes....')
+
     global_tree[idx].append(add_node(idx, original_x, original_y, _w, _h, tolerance, image))
+
     global_tree[idx].append(add_node(idx, original_x + _w, original_y, _w + _wo, _h, tolerance, image))
+
     global_tree[idx].append(add_node(idx, original_x, original_y + _h, _w, _h + _ho, tolerance, image))
+
     global_tree[idx].append(add_node(idx, original_x + _w, original_y + _h, _w + _wo, _h + _ho, tolerance, image))
 
 
-def create_tree(tolerance: float, image: np.ndarray):
+def create_tree(tolerance: float, image: np.ndarray) -> None:
     global global_idx
     global global_tree
     global nodes
@@ -113,13 +118,46 @@ def create_tree(tolerance: float, image: np.ndarray):
     split(root.idx, tolerance, image)
 
 
+def compute_mean(image: np.ndarray) -> np.ndarray:
+    global nodes
+    mr, mg, mb = 0, 0, 0
+    new_image = deepcopy(image)
+
+    for n in nodes:
+        counter = 0
+        for i in range(n.x, n.x + n.w):
+            for j in range(n.y, n.y + n.h):
+                r, g, b = image[i][j]
+                mr += r
+                mg += g
+                mb += b
+                counter += 1
+
+        if counter == 0:
+            r, g, b = image[n.x][n.y]
+            print(r)
+            print(g)
+            print(b)
+            mr = int(r)
+            mg = int(g)
+            mb = int(b)
+        else:
+            mr = mr / counter
+            mg = mg / counter
+            mb = mb / counter
+
+        for i in range(n.x, n.x + n.w):
+            for j in range(n.y, n.y + n.h):
+                new_image[i][j] = (mr, mg, mb)
+
+    return new_image
+
+
 if __name__ == '__main__':
     # test
     t = 19
     i = img.imread('images/room.jpeg')
     create_tree(t, i)
-
     nodes = list(filter(lambda n: n is not None, nodes))
-    print(nodes)
-    print(global_tree)
-
+    new_image = compute_mean(i)
+    img.imsave('images/room_mean.jpeg', new_image)
