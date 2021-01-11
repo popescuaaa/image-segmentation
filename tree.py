@@ -135,9 +135,6 @@ def compute_mean(image: np.ndarray) -> np.ndarray:
 
         if counter == 0:
             r, g, b = image[n.x][n.y]
-            print(r)
-            print(g)
-            print(b)
             mr = int(r)
             mg = int(g)
             mb = int(b)
