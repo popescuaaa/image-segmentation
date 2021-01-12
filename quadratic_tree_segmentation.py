@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.image as img
 from metrics import pixel_distance_rgb
 from copy import deepcopy
+import yaml
 
 global_idx = 0
 global_tree = {}
@@ -128,7 +129,7 @@ def create_tree(tolerance: float, image: np.ndarray) -> None:
     split(root.idx, tolerance, image)
 
 
-def apply_mean_rgb(idx: int) -> None:
+def apply_mean_rgb_node(idx: int) -> None:
     global global_tree
     global nodes
     global out_image
@@ -154,21 +155,26 @@ def apply_mean_rgb(idx: int) -> None:
         bottom_left_idx = successors[2]
         bottom_right_idx = successors[3]
 
-        apply_mean_rgb(top_left_idx)
-        apply_mean_rgb(top_right_idx)
-        apply_mean_rgb(bottom_left_idx)
-        apply_mean_rgb(bottom_right_idx)
+        apply_mean_rgb_node(top_left_idx)
+        apply_mean_rgb_node(top_right_idx)
+        apply_mean_rgb_node(bottom_left_idx)
+        apply_mean_rgb_node(bottom_right_idx)
 
 
 if __name__ == '__main__':
-    # test
-    t = 5
-    i = img.imread('images/room.jpeg')
+
+    # System configuration
+    with open('config.yaml') as f:
+        config = yaml.load(f)
+
+    t = float(config['tolerance'])
+    i = img.imread('images/{}'.format(config['target']))
+
     create_tree(t, i)
 
     out_image = deepcopy(i)
 
     for e in global_tree:
-        apply_mean_rgb(e)
+        apply_mean_rgb_node(e)
 
-    img.imsave('images/split.jpeg', out_image)
+    img.imsave('images/{}'.format(config['result']), out_image)

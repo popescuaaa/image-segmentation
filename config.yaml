@@ -1,0 +1,4 @@
+tolerance: 2
+mode: rgb
+target: room.jpeg
+result: room.out.jpeg
