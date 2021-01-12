@@ -118,38 +118,6 @@ def create_tree(tolerance: float, image: np.ndarray) -> None:
     split(root.idx, tolerance, image)
 
 
-def compute_mean(image: np.ndarray) -> np.ndarray:
-    global nodes
-    mr, mg, mb = 0, 0, 0
-    new_image = deepcopy(image)
-
-    for n in nodes:
-        counter = 0
-        for i in range(n.x, n.x + n.w):
-            for j in range(n.y, n.y + n.h):
-                r, g, b = image[i][j]
-                mr += r
-                mg += g
-                mb += b
-                counter += 1
-
-        if counter == 0:
-            r, g, b = image[n.x][n.y]
-            mr = int(r)
-            mg = int(g)
-            mb = int(b)
-        else:
-            mr = mr / counter
-            mg = mg / counter
-            mb = mb / counter
-
-        for i in range(n.x, n.x + n.w):
-            for j in range(n.y, n.y + n.h):
-                new_image[i][j] = (mr, mg, mb)
-
-    return new_image
-
-
 if __name__ == '__main__':
     # test
     t = 19
