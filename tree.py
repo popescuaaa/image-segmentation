@@ -18,6 +18,11 @@ class Node:
         self.y = y
         self.parent_idx = parent_idx
 
+        # Mean values for RGB
+        self.mr = 0.0
+        self.mg = 0.0
+        self.mb = 0.0
+
 
 # criterion
 def pixel_distance_rgb(r: float, g: float, b: float):
@@ -43,6 +48,11 @@ def homogenous(idx: int, tolerance: float, image: np.ndarray) -> bool:
         to_y = node.y + h
         print('From {} to {}'.format(from_x, to_x))
 
+        mr = 0
+        mg = 0
+        mb = 0
+        counter = 0
+
         for r in range(from_x, to_x):
             for c in range(from_y, to_y):
 
@@ -53,6 +63,16 @@ def homogenous(idx: int, tolerance: float, image: np.ndarray) -> bool:
                     min_distance = d
                 if d > max_distance:
                     max_distance = d
+
+                mr += r
+                mg += g
+                mb += b
+
+                counter += 1
+
+        nodes[idx].mr = mr // counter
+        nodes[idx].mg = mg // counter
+        nodes[idx].mb = mb // counter
 
         return (max_distance - min_distance) < tolerance
 
@@ -124,5 +144,3 @@ if __name__ == '__main__':
     i = img.imread('images/room.jpeg')
     create_tree(t, i)
     nodes = list(filter(lambda n: n is not None, nodes))
-    new_image = compute_mean(i)
-    img.imsave('images/room_mean.jpeg', new_image)
