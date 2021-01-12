@@ -1,12 +1,12 @@
 import numpy as np
-from dataclasses import dataclass
 import matplotlib.image as img
-import math
+from metrics import pixel_distance_rgb
 from copy import deepcopy
 
 global_idx = 0
 global_tree = {}
 nodes = []
+out_image = None
 
 
 class Node:
@@ -22,11 +22,6 @@ class Node:
         self.mr = 0.0
         self.mg = 0.0
         self.mb = 0.0
-
-
-# criterion
-def pixel_distance_rgb(r: float, g: float, b: float):
-    return math.sqrt(int(r) + int(g) + int(b))
 
 
 def homogenous(idx: int, tolerance: float, image: np.ndarray) -> bool:
@@ -46,7 +41,6 @@ def homogenous(idx: int, tolerance: float, image: np.ndarray) -> bool:
         from_y = node.y
         to_x = node.x + w
         to_y = node.y + h
-        print('From {} to {}'.format(from_x, to_x))
 
         mr = 0
         mg = 0
@@ -90,10 +84,7 @@ def add_node(parent_idx: int, x: int, y: int, w: int, h: int, tolerance: float, 
     global_idx += 1
 
     if not homogenous(new_node.idx, tolerance, image):
-        print('Entered here')
         split(new_node.idx, tolerance, image)
-
-    print('Added')
     return new_node
 
 
@@ -109,15 +100,14 @@ def split(idx: int, tolerance: float, image: np.ndarray):
     original_x, original_y = current_node.x, current_node.y
 
     # Split the image to all successors
-    print('Adding new nodes....')
 
-    global_tree[idx].append(add_node(idx, original_x, original_y, _w, _h, tolerance, image))
+    global_tree[idx].append(add_node(idx, original_x, original_y, _w, _h, tolerance, image).idx)
 
-    global_tree[idx].append(add_node(idx, original_x + _w, original_y, _w + _wo, _h, tolerance, image))
+    global_tree[idx].append(add_node(idx, original_x + _w, original_y, _w + _wo, _h, tolerance, image).idx)
 
-    global_tree[idx].append(add_node(idx, original_x, original_y + _h, _w, _h + _ho, tolerance, image))
+    global_tree[idx].append(add_node(idx, original_x, original_y + _h, _w, _h + _ho, tolerance, image).idx)
 
-    global_tree[idx].append(add_node(idx, original_x + _w, original_y + _h, _w + _wo, _h + _ho, tolerance, image))
+    global_tree[idx].append(add_node(idx, original_x + _w, original_y + _h, _w + _wo, _h + _ho, tolerance, image).idx)
 
 
 def create_tree(tolerance: float, image: np.ndarray) -> None:
@@ -126,7 +116,7 @@ def create_tree(tolerance: float, image: np.ndarray) -> None:
     global nodes
 
     w, h, c = image.shape
-    nodes = [None] * (h * w // 2)  # worst case pixel by pixel
+    nodes = [None] * (h * w)  # worst case pixel by pixel
     global_tree = {}
     global_idx = 0
 
@@ -138,9 +128,47 @@ def create_tree(tolerance: float, image: np.ndarray) -> None:
     split(root.idx, tolerance, image)
 
 
+def apply_mean_rgb(idx: int) -> None:
+    global global_tree
+    global nodes
+    global out_image
+
+    if len(global_tree[idx]) == 0:
+        # Color current node
+        mr, mg, mb = nodes[idx].mr, nodes[idx].mg, nodes[idx].mb
+        x, y = nodes[idx].x, nodes[idx].y
+        w, h = nodes[idx].w, nodes[idx].h
+
+        for i in range(x, x + w):
+            for j in range(y, y + h):
+                out_image[i][j] = (mr, mg, mb)
+
+    else:
+        # If the node has successors, we are sure that the branching factor is 4
+        # and we can recursively apply mean value on them
+
+        successors = global_tree[idx]
+
+        top_left_idx = successors[0]
+        top_right_idx = successors[1]
+        bottom_left_idx = successors[2]
+        bottom_right_idx = successors[3]
+
+        apply_mean_rgb(top_left_idx)
+        apply_mean_rgb(top_right_idx)
+        apply_mean_rgb(bottom_left_idx)
+        apply_mean_rgb(bottom_right_idx)
+
+
 if __name__ == '__main__':
     # test
-    t = 19
+    t = 5
     i = img.imread('images/room.jpeg')
     create_tree(t, i)
-    nodes = list(filter(lambda n: n is not None, nodes))
+
+    out_image = deepcopy(i)
+
+    for e in global_tree:
+        apply_mean_rgb(e)
+
+    img.imsave('images/split.jpeg', out_image)
