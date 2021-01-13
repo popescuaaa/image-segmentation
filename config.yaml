@@ -1,4 +1,5 @@
-tolerance: 2
-mode: rgb
+tolerance: 5
+mode: hsv
 target: room.jpeg
-result: room.out.jpeg
+split_result: room.split.jpeg
+merge_result: room.merge.jpeg

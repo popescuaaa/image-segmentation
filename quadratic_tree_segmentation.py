@@ -282,6 +282,8 @@ if __name__ == '__main__':
     # Create a quadratic tree
     create_tree(t, i)
 
+    print('Finished quadratic tree creation....')
+
     # Convert tree to list
     tree_to_list(0)
 
@@ -291,6 +293,8 @@ if __name__ == '__main__':
         apply_mean_rgb_node(e, None, None, None)
 
     img.imsave('images/{}'.format(config['split_result']), out_image)
+
+    print('Saved split version of the image....')
 
     # Merge
 
