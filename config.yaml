@@ -1,4 +1,4 @@
-tolerance: 5
+tolerance: 10
 mode: hsv
 target: room.jpeg
 split_result: room.split.jpeg

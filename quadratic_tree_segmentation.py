@@ -1,9 +1,9 @@
 import numpy as np
 import matplotlib.image as img
-import matplotlib.colors as colors
 from metrics import pixel_distance_rgb, node_cluster_distance
 from copy import deepcopy
 import yaml
+import time
 
 # Init environment
 
@@ -14,7 +14,7 @@ nodes = []
 out_image = None
 
 tree_list = []
-clusters = []
+clusters = {}
 cluster_idx = 0
 
 
@@ -34,6 +34,7 @@ class Node:
         self.mg = 0.0
         self.mb = 0.0
 
+        # Cluster identification index
         self.cluster_idx = None
 
 
@@ -75,6 +76,19 @@ class Cluster:
         current_node = nodes[idx]
         d = node_cluster_distance(self.mr, self.mg, self.mb, current_node.mr, current_node.mg, current_node.mb)
         return d < tolerance
+
+
+def touching(n1_idx: int, n2_idx: int) -> bool:
+    global nodes
+    n1 = nodes[n1_idx]
+    n2 = nodes[n2_idx]
+
+    if n1.x == n2.x or n1.x == n2.x + n2.w:
+        return (n2.y <= n1.y <= n2.y + n2.h) or (n1.y <= n2.y <= n1.y + n1.h)
+    if n1.y == n2.y or n1.y == n2.y + n2.h:
+        return (n2.x <= n1.x <= n2.x + n2.w) or (n1.x <= n2.x <= n1.x + n1.w)
+
+    return False
 
 
 def homogenous(idx: int, tolerance: float, image: np.ndarray) -> bool:
@@ -151,15 +165,10 @@ def split(idx: int, tolerance: float, image: np.ndarray):
     _wo, _ho = w % 2, h % 2  # offsets
 
     original_x, original_y = current_node.x, current_node.y
-
     # Split the image to all successors
-
     global_tree[idx].append(add_node(idx, original_x, original_y, _w, _h, tolerance, image).idx)
-
     global_tree[idx].append(add_node(idx, original_x + _w, original_y, _w + _wo, _h, tolerance, image).idx)
-
     global_tree[idx].append(add_node(idx, original_x, original_y + _h, _w, _h + _ho, tolerance, image).idx)
-
     global_tree[idx].append(add_node(idx, original_x + _w, original_y + _h, _w + _wo, _h + _ho, tolerance, image).idx)
 
 
@@ -181,7 +190,7 @@ def create_tree(tolerance: float, image: np.ndarray) -> None:
     split(root.idx, tolerance, image)
 
 
-def apply_mean_rgb_node(idx: int, mr: float or None, mg: float or None, mb: float or None) -> None:
+def apply_mean_rgb_node(idx: int, mr: float or None = None, mg: float or None = None, mb: float or None = None) -> None:
     global global_tree
     global nodes
     global out_image
@@ -238,32 +247,49 @@ def create_clusters(tolerance: float):
     global cluster_idx
     global tree_list
 
-    base_cluster = Cluster(cluster_idx)
-    cluster_idx += 1
+    current_idx = 0
+    while current_idx != len(tree_list) // 10:
+        print(current_idx)
+        neighbours = list(filter(lambda idx: touching(idx, tree_list[current_idx]) or
+                                             touching(tree_list[current_idx], idx),
+                                 tree_list))
 
-    base_cluster.add_node(tree_list[0])
-    nodes[tree_list[0]].cluster_idx = base_cluster.idx
+        sorted_neighbours = sorted(neighbours, key=lambda n: -node_cluster_distance(
+                nodes[tree_list[current_idx]].mr, nodes[tree_list[current_idx]].mg, nodes[tree_list[current_idx]].mb,
+                nodes[tree_list[n]].mr, nodes[tree_list[n]].mg, nodes[tree_list[n]].mb))
 
-    clusters.append(base_cluster)
+        best_neighbour_idx = sorted_neighbours[0]
 
-    for node_idx in tree_list[1:]:
-        added = False
-
-        if nodes[node_idx].cluster_idx is None:
-            # It can be added to a cluster
-            for cluster in clusters:
-                if cluster.can_be_added(node_idx, tolerance):
-                    cluster.add_node(node_idx)
-                    nodes[node_idx].cluster_idx = cluster.idx
-                    added = True
-
-            if not added:
+        if nodes[current_idx].cluster_idx is None:
+            # Verify if the second node is already in a cluster
+            if nodes[best_neighbour_idx].cluster_idx is None:
+                # Create a new cluster and integrate both nodes
                 new_cluster = Cluster(cluster_idx)
                 cluster_idx += 1
 
-                # Add the node to the new cluster
-                new_cluster.add_node(node_idx)
-                clusters.append(new_cluster)
+                new_cluster.add_node(current_idx)
+                nodes[current_idx].cluster_idx = new_cluster.idx
+
+                new_cluster.add_node(best_neighbour_idx)
+                nodes[best_neighbour_idx].cluster_idx = new_cluster.idx
+
+                clusters[new_cluster.idx] = new_cluster
+            else:
+                neighbour_cluster_idx = nodes[best_neighbour_idx].cluster_idx
+                neighbour_cluster = clusters[neighbour_cluster_idx]
+
+                neighbour_cluster.add_node(current_idx)
+                nodes[current_idx].cluster_idx = neighbour_cluster.idx
+
+        else:
+            if nodes[best_neighbour_idx].cluster_idx is None:
+                current_cluster_idx = nodes[current_idx].cluster_idx
+                current_cluster = clusters[current_cluster_idx]
+
+                current_cluster.add_node(best_neighbour_idx)
+                nodes[best_neighbour_idx].cluster_idx = current_cluster.idx
+
+        current_idx += 1
 
 
 if __name__ == '__main__':
@@ -278,11 +304,13 @@ if __name__ == '__main__':
     mode = config['mode']
 
     # Split
-
     # Create a quadratic tree
-    create_tree(t, i)
 
-    print('Finished quadratic tree creation....')
+    start = time.process_time()
+    create_tree(t, i)
+    elapsed_time = time.process_time() - start
+
+    print('Finished quadratic tree creation after {}....'.format(elapsed_time))
 
     # Convert tree to list
     tree_to_list(0)
@@ -290,7 +318,7 @@ if __name__ == '__main__':
     out_image = deepcopy(i)
 
     for e in tree_list:
-        apply_mean_rgb_node(e, None, None, None)
+        apply_mean_rgb_node(e)  # with self mean values
 
     img.imsave('images/{}'.format(config['split_result']), out_image)
 
@@ -300,9 +328,16 @@ if __name__ == '__main__':
 
     out_image = deepcopy(i)
 
+    start = time.process_time()
     create_clusters(t)
+    elapsed_time = time.process_time() - start
+
+    print('Cluster of nodes has been created in {}....'.format(elapsed_time))
 
     for c in clusters:
-        apply_mean_cluster(c.idx)
+        print('Clusters[{}] = {}'.format(c, clusters[c].elements))
+        apply_mean_cluster(clusters[c].idx)
 
     img.imsave('images/{}'.format(config['merge_result']), out_image)
+
+    print('Saved merge version of the image....')
