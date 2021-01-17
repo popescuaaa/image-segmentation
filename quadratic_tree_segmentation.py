@@ -358,13 +358,13 @@ if __name__ == '__main__':
         if i == max_workers - 1:
             start_index = i * step
             end_index = len(tree_list) - start_index
-            worker = threading.Thread(target=create_clusters, args=(t / 3, start_index, end_index))
+            worker = threading.Thread(target=create_clusters, args=(t * 20, start_index, end_index))
             workers.append(worker)
             worker.start()
         else:
             start_index = i * step
             end_index = (i + 1) * step
-            worker = threading.Thread(target=create_clusters, args=(t / 3, start_index, end_index))
+            worker = threading.Thread(target=create_clusters, args=(t * 20, start_index, end_index))
             workers.append(worker)
             worker.start()
 
