@@ -4,12 +4,13 @@ from metrics import pixel_distance_rgb, node_cluster_distance
 from copy import deepcopy
 import yaml
 import time
+import threading
 
 # Init environment
 
 global_idx = 0
 global_tree = {}
-nodes = []
+nodes = {}
 
 out_image = None
 
@@ -53,8 +54,10 @@ class Cluster:
         # Cluster elements
         self.elements = []
 
-    def add_node(self, idx: int):
+    def add_node(self, idx: int) -> None:
         global nodes
+        if idx in self.elements:
+            return
         self.elements.append(idx)
 
         # Recompute mean values
@@ -70,6 +73,8 @@ class Cluster:
         self.mr = mr / len(self.elements)
         self.mg = mg / len(self.elements)
         self.mb = mb / len(self.elements)
+
+        nodes[idx].cluster_idx = self.idx
 
     def can_be_added(self, idx: int, tolerance: float):
         global nodes
@@ -178,11 +183,11 @@ def create_tree(tolerance: float, image: np.ndarray) -> None:
     global nodes
 
     w, h, c = image.shape
-    nodes = [None] * (h * w)  # worst case pixel by pixel
+    nodes = {}
     global_tree = {}
     global_idx = 0
 
-    root = Node(global_idx, w, h, 0, 0, 0)
+    root = Node(global_idx, w, h, 0, 0, -1)
     nodes[global_idx] = root
     global_idx += 1
 
@@ -231,7 +236,7 @@ def apply_mean_cluster(idx: int) -> None:
         apply_mean_rgb_node(e, clusters[idx].mr, clusters[idx].mg, clusters[idx].mb)
 
 
-def tree_to_list(idx: int):
+def tree_to_list(idx: int) -> None:
     global tree_list
     if not global_tree[idx]:
         tree_list.append(idx)
@@ -242,54 +247,73 @@ def tree_to_list(idx: int):
         tree_to_list(global_tree[idx][3])
 
 
-def create_clusters(tolerance: float):
+def merge(main_node: int, target: int, tolerance: float):
+    global nodes
+    global clusters
+    global cluster_idx
+
+    main_cluster_idx = nodes[main_node].cluster_idx
+    target_cluster_idx = nodes[target].cluster_idx
+
+    if main_cluster_idx is None and target_cluster_idx is None:
+        # Create a new cluster for both of them
+        new_cluster = Cluster(cluster_idx)
+        cluster_idx += 1
+        clusters[new_cluster.idx] = new_cluster
+
+        new_cluster.add_node(main_node)
+        if new_cluster.can_be_added(target, tolerance):
+            new_cluster.add_node(target)
+
+    elif main_cluster_idx is None and target_cluster_idx is not None:
+        if clusters[target_cluster_idx].can_be_added(main_node, tolerance):
+            clusters[target_cluster_idx].add_node(main_node)
+
+    elif main_cluster_idx is not None and target_cluster_idx is None:
+        if clusters[main_cluster_idx].can_be_added(target, tolerance):
+            clusters[main_cluster_idx].add_node(target)
+
+    elif main_cluster_idx is not None and target_cluster_idx is not None:
+        # Merge two clusters
+        if main_cluster_idx != target_cluster_idx:
+            main_cluster = clusters[main_cluster_idx]
+            target_cluster = clusters[target_cluster_idx]
+
+            added = []
+
+            for te in target_cluster.elements:
+                if main_cluster.can_be_added(te, tolerance):
+                    main_cluster.add_node(te)
+                    added.append(te)
+
+            for tea in added:
+                target_cluster.elements.remove(tea)
+
+            if len(target_cluster.elements) == 0:
+                print('Cluster: {} has been deleted'.format(target_cluster_idx))
+                clusters.pop(target_cluster_idx)
+
+
+def create_clusters(tolerance: float, start_index: int, end_index: int):
     global clusters
     global cluster_idx
     global tree_list
 
-    current_idx = 0
-    while current_idx != len(tree_list) // 10:
-        print(current_idx)
-        neighbours = list(filter(lambda idx: touching(idx, tree_list[current_idx]) or
-                                             touching(tree_list[current_idx], idx),
-                                 tree_list))
+    # Region growing
+    nodes_stack = [tree_list[start_index]]  # nodes to cluster
+    discovered = []
+    while nodes_stack:
+        print(len(nodes_stack))
+        cni = nodes_stack.pop()  # This node has no cluster to be part of
+        if cni not in discovered:
+            discovered.append(cni)
 
-        sorted_neighbours = sorted(neighbours, key=lambda n: -node_cluster_distance(
-                nodes[tree_list[current_idx]].mr, nodes[tree_list[current_idx]].mg, nodes[tree_list[current_idx]].mb,
-                nodes[tree_list[n]].mr, nodes[tree_list[n]].mg, nodes[tree_list[n]].mb))
-
-        best_neighbour_idx = sorted_neighbours[0]
-
-        if nodes[current_idx].cluster_idx is None:
-            # Verify if the second node is already in a cluster
-            if nodes[best_neighbour_idx].cluster_idx is None:
-                # Create a new cluster and integrate both nodes
-                new_cluster = Cluster(cluster_idx)
-                cluster_idx += 1
-
-                new_cluster.add_node(current_idx)
-                nodes[current_idx].cluster_idx = new_cluster.idx
-
-                new_cluster.add_node(best_neighbour_idx)
-                nodes[best_neighbour_idx].cluster_idx = new_cluster.idx
-
-                clusters[new_cluster.idx] = new_cluster
-            else:
-                neighbour_cluster_idx = nodes[best_neighbour_idx].cluster_idx
-                neighbour_cluster = clusters[neighbour_cluster_idx]
-
-                neighbour_cluster.add_node(current_idx)
-                nodes[current_idx].cluster_idx = neighbour_cluster.idx
-
-        else:
-            if nodes[best_neighbour_idx].cluster_idx is None:
-                current_cluster_idx = nodes[current_idx].cluster_idx
-                current_cluster = clusters[current_cluster_idx]
-
-                current_cluster.add_node(best_neighbour_idx)
-                nodes[best_neighbour_idx].cluster_idx = current_cluster.idx
-
-        current_idx += 1
+        cnn = filter(lambda n: touching(n, cni) or touching(cni, n), tree_list[start_index:end_index])
+        for n in cnn:
+            merge(cni, n, tolerance)
+            if n not in discovered:
+                nodes_stack.append(n)
+                discovered.append(n)
 
 
 if __name__ == '__main__':
@@ -309,27 +333,45 @@ if __name__ == '__main__':
     start = time.process_time()
     create_tree(t, i)
     elapsed_time = time.process_time() - start
-
     print('Finished quadratic tree creation after {}....'.format(elapsed_time))
 
     # Convert tree to list
     tree_to_list(0)
-
+    print('Number of nodes: {}'.format(len(tree_list)))
     out_image = deepcopy(i)
-
     for e in tree_list:
         apply_mean_rgb_node(e)  # with self mean values
-
     img.imsave('images/{}'.format(config['split_result']), out_image)
-
     print('Saved split version of the image....')
 
     # Merge
-
+    print(len(tree_list))
     out_image = deepcopy(i)
 
+    workers = []
+    max_workers = 100
+    step = len(tree_list) // 100
+
     start = time.process_time()
-    create_clusters(t)
+
+    for i in range(max_workers):
+        if i == max_workers - 1:
+            start_index = i * step
+            end_index = len(tree_list) - start_index
+            worker = threading.Thread(target=create_clusters, args=(t / 3, start_index, end_index))
+            workers.append(worker)
+            worker.start()
+        else:
+            start_index = i * step
+            end_index = (i + 1) * step
+            worker = threading.Thread(target=create_clusters, args=(t / 3, start_index, end_index))
+            workers.append(worker)
+            worker.start()
+
+    for index, worker in enumerate(workers):
+        worker.join()
+
+    # create_clusters(t)
     elapsed_time = time.process_time() - start
 
     print('Cluster of nodes has been created in {}....'.format(elapsed_time))
