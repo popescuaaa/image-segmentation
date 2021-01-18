@@ -4,7 +4,7 @@ from metrics import pixel_distance_rgb, node_cluster_distance
 from copy import deepcopy
 import yaml
 import time
-import threading
+from threading import Thread, Lock
 
 # Init environment
 
@@ -247,73 +247,91 @@ def tree_to_list(idx: int) -> None:
         tree_to_list(global_tree[idx][3])
 
 
-def merge(main_node: int, target: int, tolerance: float):
-    global nodes
-    global clusters
-    global cluster_idx
+class ClusterCreator(Thread):
+    def __init__(self, idx: int, tolerance: float, start_index: int, end_index: int):
+        super().__init__()
+        self.idx = idx
+        self.sync = Lock()
+        self.start_index = start_index
+        self.end_index = end_index
+        self.tolerance = tolerance
 
-    main_cluster_idx = nodes[main_node].cluster_idx
-    target_cluster_idx = nodes[target].cluster_idx
+    def merge(self, main_node: int, target: int):
+        global nodes
+        global clusters
+        global cluster_idx
 
-    if main_cluster_idx is None and target_cluster_idx is None:
-        # Create a new cluster for both of them
-        new_cluster = Cluster(cluster_idx)
-        cluster_idx += 1
-        clusters[new_cluster.idx] = new_cluster
+        main_cluster_idx = nodes[main_node].cluster_idx
+        target_cluster_idx = nodes[target].cluster_idx
 
-        new_cluster.add_node(main_node)
-        if new_cluster.can_be_added(target, tolerance):
-            new_cluster.add_node(target)
+        if main_cluster_idx is None and target_cluster_idx is None:
+            # Create a new cluster for both of them
+            new_cluster = Cluster(cluster_idx)
 
-    elif main_cluster_idx is None and target_cluster_idx is not None:
-        if clusters[target_cluster_idx].can_be_added(main_node, tolerance):
-            clusters[target_cluster_idx].add_node(main_node)
+            self.sync.acquire()
+            cluster_idx += 1
+            clusters[new_cluster.idx] = new_cluster
+            self.sync.release()
 
-    elif main_cluster_idx is not None and target_cluster_idx is None:
-        if clusters[main_cluster_idx].can_be_added(target, tolerance):
-            clusters[main_cluster_idx].add_node(target)
+            new_cluster.add_node(main_node)
+            if new_cluster.can_be_added(target, self.tolerance):
+                new_cluster.add_node(target)
 
-    elif main_cluster_idx is not None and target_cluster_idx is not None:
-        # Merge two clusters
-        if main_cluster_idx != target_cluster_idx:
-            main_cluster = clusters[main_cluster_idx]
-            target_cluster = clusters[target_cluster_idx]
+        elif main_cluster_idx is None and target_cluster_idx is not None:
+            if clusters[target_cluster_idx].can_be_added(main_node, self.tolerance):
+                clusters[target_cluster_idx].add_node(main_node)
 
-            added = []
+        elif main_cluster_idx is not None and target_cluster_idx is None:
+            if clusters[main_cluster_idx].can_be_added(target, self.tolerance):
+                clusters[main_cluster_idx].add_node(target)
 
-            for te in target_cluster.elements:
-                if main_cluster.can_be_added(te, tolerance):
-                    main_cluster.add_node(te)
-                    added.append(te)
+        elif main_cluster_idx is not None and target_cluster_idx is not None:
+            # Merge two clusters
+            if main_cluster_idx != target_cluster_idx:
+                main_cluster = clusters[main_cluster_idx]
+                target_cluster = clusters[target_cluster_idx]
 
-            for tea in added:
-                target_cluster.elements.remove(tea)
+                added = []
 
-            if len(target_cluster.elements) == 0:
-                print('Cluster: {} has been deleted'.format(target_cluster_idx))
-                clusters.pop(target_cluster_idx)
+                self.sync.acquire()
 
+                for te in target_cluster.elements:
+                    if main_cluster.can_be_added(te, self.tolerance):
+                        main_cluster.add_node(te)
+                        added.append(te)
 
-def create_clusters(tolerance: float, start_index: int, end_index: int):
-    global clusters
-    global cluster_idx
-    global tree_list
+                for tea in added:
+                    target_cluster.elements.remove(tea)
 
-    # Region growing
-    nodes_stack = [tree_list[start_index]]  # nodes to cluster
-    discovered = []
-    while nodes_stack:
-        print(len(nodes_stack))
-        cni = nodes_stack.pop()  # This node has no cluster to be part of
-        if cni not in discovered:
-            discovered.append(cni)
+                if len(target_cluster.elements) == 0:
+                    print('Cluster: {} has been deleted by thread: {}'.format(target_cluster_idx, self.idx))
+                    clusters.pop(target_cluster_idx)
 
-        cnn = filter(lambda n: touching(n, cni) or touching(cni, n), tree_list[start_index:end_index])
-        for n in cnn:
-            merge(cni, n, tolerance)
-            if n not in discovered:
-                nodes_stack.append(n)
-                discovered.append(n)
+                self.sync.release()
+
+    def create_clusters(self):
+        global clusters
+        global cluster_idx
+        global tree_list
+
+        # Region growing
+        nodes_stack = [tree_list[self.start_index]]  # nodes to cluster
+        discovered = []
+        while nodes_stack:
+            print(len(nodes_stack))
+            cni = nodes_stack.pop()  # This node has no cluster to be part of
+            if cni not in discovered:
+                discovered.append(cni)
+
+            cnn = filter(lambda n: touching(n, cni) or touching(cni, n), tree_list[self.start_index:self.end_index])
+            for n in cnn:
+                self.merge(cni, n)
+                if n not in discovered:
+                    nodes_stack.append(n)
+                    discovered.append(n)
+
+    def run(self) -> None:
+        self.create_clusters()
 
 
 if __name__ == '__main__':
@@ -358,13 +376,13 @@ if __name__ == '__main__':
         if i == max_workers - 1:
             start_index = i * step
             end_index = len(tree_list) - start_index
-            worker = threading.Thread(target=create_clusters, args=(t * 20, start_index, end_index))
+            worker = ClusterCreator(i, t * 10, start_index, end_index)
             workers.append(worker)
             worker.start()
         else:
             start_index = i * step
             end_index = (i + 1) * step
-            worker = threading.Thread(target=create_clusters, args=(t * 20, start_index, end_index))
+            worker = ClusterCreator(i, t * 10, start_index, end_index)
             workers.append(worker)
             worker.start()
 
