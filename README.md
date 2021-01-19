@@ -1,13 +1,17 @@
 # Image Segmentation using quadratic tree method
 🌠
 
+---
+- Region based segmentation using a quad tree 
+- Region growing for merging based on touching neighbours in all directions
+- min-max homogeneity principle for image splitting
 
-----
+Note: is closer to KNN merging than region merging as I take in consideration the 
+successsors and the neighbours which will result in a more diverse and more computation 
+complex way of merging.
 
-## Task list:
-- [ ] resolve bug with table image
-- [x] add regions unification from global tree dict
-- [ ] add hsv and ycbcr metrics
-- [x] clustering made with adjacent nodes not all nodes
-    - [x] get neighbours => the best ngh
+### Computation
+The whole process is realized in parallel, using up to 100 workers which process and merge
+separated parts of the list representation of the quad tree.
+
 
