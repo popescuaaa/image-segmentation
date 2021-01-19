@@ -327,7 +327,9 @@ class ClusterCreator(Thread):
             if cni not in discovered:
                 discovered.append(cni)
 
-            cnn = filter(lambda n: touching(n, cni) or touching(cni, n), tree_list[self.start_index:self.end_index])
+            cnn = list(filter(lambda n: touching(n, cni) or touching(cni, n), tree_list[self.start_index:self.end_index]))
+            cns = global_tree[cni]
+            cnn += cns
             for n in cnn:
                 self.merge(cni, n)
                 if n not in discovered:
