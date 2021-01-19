@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.image as img
-from metrics import pixel_distance_rgb, node_cluster_distance
+from metrics import pixel_distance, node_cluster_distance
 from copy import deepcopy
 import yaml
 import time
@@ -13,6 +13,8 @@ global_tree = {}
 nodes = {}
 
 out_image = None
+merge_lock = Lock()
+mode = None
 
 tree_list = []
 clusters = {}
@@ -56,6 +58,7 @@ class Cluster:
 
     def add_node(self, idx: int) -> None:
         global nodes
+        global mode
         if idx in self.elements:
             return
         self.elements.append(idx)
@@ -79,7 +82,7 @@ class Cluster:
     def can_be_added(self, idx: int, tolerance: float):
         global nodes
         current_node = nodes[idx]
-        d = node_cluster_distance(self.mr, self.mg, self.mb, current_node.mr, current_node.mg, current_node.mb)
+        d = node_cluster_distance(self.mr, self.mg, self.mb, current_node.mr, current_node.mg, current_node.mb, mode)
         return d < tolerance
 
 
@@ -98,6 +101,7 @@ def touching(n1_idx: int, n2_idx: int) -> bool:
 
 def homogenous(idx: int, tolerance: float, image: np.ndarray) -> bool:
     global nodes
+    global mode
     node = nodes[idx]
 
     w, h = node.w, node.h
@@ -123,7 +127,7 @@ def homogenous(idx: int, tolerance: float, image: np.ndarray) -> bool:
             for c in range(from_y, to_y):
 
                 r, g, b = image[r][c]
-                d = pixel_distance_rgb(r, g, b)
+                d = pixel_distance(r, g, b, mode)
 
                 if d < min_distance:
                     min_distance = d
@@ -288,12 +292,12 @@ class ClusterCreator(Thread):
         elif main_cluster_idx is not None and target_cluster_idx is not None:
             # Merge two clusters
             if main_cluster_idx != target_cluster_idx:
+                merge_lock.acquire()
+
                 main_cluster = clusters[main_cluster_idx]
                 target_cluster = clusters[target_cluster_idx]
 
                 added = []
-
-                self.sync.acquire()
 
                 for te in target_cluster.elements:
                     if main_cluster.can_be_added(te, self.tolerance):
@@ -307,7 +311,7 @@ class ClusterCreator(Thread):
                     print('Cluster: {} has been deleted by thread: {}'.format(target_cluster_idx, self.idx))
                     clusters.pop(target_cluster_idx)
 
-                self.sync.release()
+                merge_lock.release()
 
     def create_clusters(self):
         global clusters
